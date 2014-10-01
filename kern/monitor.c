@@ -13,6 +13,7 @@
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
+#define LAB1    // print 5 args in backtrace for lab1 grading
 
 struct Command {
 	const char *name;
@@ -21,9 +22,13 @@ struct Command {
 	int (*func)(int argc, char** argv, struct Trapframe* tf);
 };
 
+int mon_colortest(int argc, char **argv, struct Trapframe *tf);
+
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+        { "backtrace", "Display stack backtrace", mon_backtrace },
+        { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -55,14 +60,61 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
+typedef union addr_t addr_t;
+
+union addr_t {
+    uint32_t addr;
+    uint32_t *data;
+    addr_t *ptr;
+};
+
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
-	// Your code here.
-	return 0;
+    cprintf("Stack backtrace:\n");
+    addr_t ebp;
+    ebp.addr = read_ebp();
+    for (; ebp.ptr; ebp = *ebp.ptr) {
+        struct Eipdebuginfo info;
+        if (debuginfo_eip(ebp.data[1], &info)) {
+            cprintf("Failed to read debug info\n");
+            continue;
+        }
+
+#ifdef LAB1
+        cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n",
+                ebp.addr, ebp.data[1], // ebp , eip
+                ebp.data[2], ebp.data[3], ebp.data[4], ebp.data[5], ebp.data[6]);
+#else
+        cprintf("  ebp %08x  eip %08x  args", ebp.addr, ebp.data[1]);
+        int i;
+        for (i = 0; i < info.eip_fn_narg; i++)
+            cprintf(" %08x", ebp.data[i + 2]);
+        cprintf("\n");
+#endif
+
+        cprintf("         %s:%d: %.*s+%d\n",
+                info.eip_file, info.eip_line,
+                info.eip_fn_namelen, info.eip_fn_name,
+                ebp.data[1] - info.eip_fn_addr);
+    }
+
+    return 0;
 }
 
 
+int mon_colortest(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf("\x1b[31mRed"
+            "\x1b[32mGreen"
+            "\x1b[33mYellow"
+            "\x1b[34mBlue"
+            "\x1b[35mMagenta"
+            "\x1b[36mCyan"
+            "\x1b[30;47mBlack"
+            "\n\x1b[0m");
+    return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
