@@ -10,6 +10,7 @@
 #include <kern/console.h>
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -22,12 +23,11 @@ struct Command {
 	int (*func)(int argc, char** argv, struct Trapframe* tf);
 };
 
-int mon_colortest(int argc, char **argv, struct Trapframe *tf);
-
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
         { "backtrace", "Display stack backtrace", mon_backtrace },
+        { "showmappings", "Display memory mapping status", mon_showmappings },
         { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
@@ -102,17 +102,31 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
     return 0;
 }
 
+int mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+    if (argc == 1)
+        return showmappings(0, 0xffffffff);
+
+    if (argc == 3) {
+        uint32_t low = strtol(argv[1], NULL, 16);
+        uint32_t high = strtol(argv[2], NULL, 16);
+        if (low < high) return showmappings(low, high);
+    }
+
+    cprintf("usage: showmappings low_address high_address\n");
+    return 1;
+}
 
 int mon_colortest(int argc, char **argv, struct Trapframe *tf)
 {
-    cprintf("\x1b[31mRed"
-            "\x1b[32mGreen"
-            "\x1b[33mYellow"
-            "\x1b[34mBlue"
-            "\x1b[35mMagenta"
-            "\x1b[36mCyan"
+    cprintf(COLOR_RED       "Red"
+            COLOR_GREEN     "Green"
+            COLOR_YELLOW    "Yellow"
+            COLOR_BLUE      "Blue"
+            COLOR_MAGENTA   "Magenta"
+            COLOR_CYAN      "Cyan"
             "\x1b[30;47mBlack"
-            "\n\x1b[0m");
+            "\n"COLOR_NONE);
     return 0;
 }
 
@@ -170,7 +184,7 @@ monitor(struct Trapframe *tf)
 
 
 	while (1) {
-		buf = readline("K> ");
+		buf = readline(COLOR_GREEN"K> "COLOR_NONE);
 		if (buf != NULL)
 			if (runcmd(buf, tf) < 0)
 				break;

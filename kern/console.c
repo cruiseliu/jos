@@ -211,18 +211,18 @@ cga_putc(int c)
 	outb(addr_6845 + 1, crt_pos);
 }
 
-#define COLOR_BLACK     0
-#define COLOR_BLUE      1
-#define COLOR_GREEN     2
-#define COLOR_CYAN      3
-#define COLOR_RED       4
-#define COLOR_MAGENTA   5
-#define COLOR_WHITE     7
-#define COLOR_YELLOW    14
+#define CGA_COLOR_BLACK     0
+#define CGA_COLOR_BLUE      1
+#define CGA_COLOR_GREEN     2
+#define CGA_COLOR_CYAN      3
+#define CGA_COLOR_RED       4
+#define CGA_COLOR_MAGENTA   5
+#define CGA_COLOR_WHITE     7
+#define CGA_COLOR_YELLOW    14
 
 static int colorindex[8] = {
-    COLOR_BLACK, COLOR_RED, COLOR_GREEN, COLOR_YELLOW,
-    COLOR_BLUE, COLOR_MAGENTA, COLOR_CYAN, COLOR_WHITE
+    CGA_COLOR_BLACK, CGA_COLOR_RED, CGA_COLOR_GREEN, CGA_COLOR_YELLOW,
+    CGA_COLOR_BLUE, CGA_COLOR_MAGENTA, CGA_COLOR_CYAN, CGA_COLOR_WHITE
 };
 
 static void cga_setmode(int mode)
