@@ -30,7 +30,7 @@ static struct Command commands[] = {
         { "showmappings", "Display memory mapping status", mon_showmappings },
         { "setpage", "Set page permissions", mon_setpage },
         { "memdump", "Show memory content", mon_memdump },
-        { "colortest", "Test colorful output", mon_colortest }
+        { "colortest", "Test colorful output", mon_colortest },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 

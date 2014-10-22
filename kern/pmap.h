@@ -9,13 +9,20 @@
 #include <inc/memlayout.h>
 #include <inc/assert.h>
 
+#define USE_BUDDY
+
 extern char bootstacktop[], bootstack[];
 
+#ifdef USE_BUDDY
+struct Buddy;
+extern struct Buddy *pages;
+#else
 extern struct PageInfo *pages;
+#endif
+
 extern size_t npages;
 
 extern pde_t *kern_pgdir;
-
 
 /* This macro takes a kernel virtual address -- an address that points above
  * KERNBASE, where the machine's maximum 256MB of physical memory is mapped --
@@ -53,16 +60,26 @@ enum {
 void	mem_init(void);
 
 void	page_init(void);
-void    page_init_b();
+
+#ifdef USE_BUDDY
+physaddr_t page_alloc(int alloc_flags);
+void page_free(physaddr_t pa);
+int page_insert(pde_t *pgdir, physaddr_t pa, void *va, int perm);
+void page_remove(pde_t *pgdir, void *va);
+physaddr_t page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
+void page_decref(physaddr_t pa);
+#else
 struct PageInfo *page_alloc(int alloc_flags);
 void	page_free(struct PageInfo *pp);
 int	page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm);
 void	page_remove(pde_t *pgdir, void *va);
-void    page_remove_b(pde_t *pgdir, void *va);
 struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
 void	page_decref(struct PageInfo *pp);
+#endif
 
 void	tlb_invalidate(pde_t *pgdir, void *va);
+
+#ifndef USE_BUDDY
 
 static inline physaddr_t
 page2pa(struct PageInfo *pp)
@@ -83,6 +100,8 @@ page2kva(struct PageInfo *pp)
 {
 	return KADDR(page2pa(pp));
 }
+
+#endif
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
 

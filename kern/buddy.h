@@ -23,33 +23,49 @@ struct Buddy {
 
 #define SIZE_OF_BUDDY(size) (((size)*2-1)*sizeof(bnode_t) + sizeof(uint32_t))
 
+#define SIZE_MASK           0x1f
+#define REF_ONE             0x20    // SIZE_MASK + 1
+#define REF_SHIFT           5       // log2(REF_ONE)
+
 // Free space of a node
-#define BUDDY_NODE_SIZE(x)  ((x)&0x1f ? 1<<(((x)&0x1f)-1) : 0)
+#define BUDDY_NODE_SIZE(x)  ((x)&SIZE_MASK ? 1<<(((x)&SIZE_MASK)-1) : 0)
 
 // Physical address to node index
 #define PA2NODE(b,pa)       (((pa)>>PGSHIFT)+(b)->size-1)
 
-//#define BUDDY_INC_REF(b,pa) (b)->tree[PA2NODE((b),(pa))] += 0x20
+//#define BUDDY_INC_REF(b,pa) (b)->tree[PA2NODE((b),(pa))] += REF_ONE
 
-#define BUDDY_DEC_REF(b,pa) (b)->tree[PA2NODE((b),(pa))] -= 0x20
+#define BUDDY_DEC_REF(b,pa) (b)->tree[PA2NODE((b),(pa))] -= REF_ONE
 
-#define BUDDY_GET_REF(b,pa) ((b)->tree[PA2NODE((b),(pa))] >> 5)
+#define BUDDY_GET_REF(b,pa) ((b)->tree[PA2NODE((b),(pa))] >> REF_SHIFT)
 
 // Set reference count to 0, used by checkers
-#define BUDDY_CLR_REF(b,pa) ((b)->tree[PA2NODE((b),(pa))] &= 0x1f)
+#define BUDDY_CLR_REF(b,pa) ((b)->tree[PA2NODE((b),(pa))] &= SIZE_MASK)
 
 void BUDDY_INC_REF(struct Buddy *b, uint32_t pa)
 {
     assert(BUDDY_GET_REF(b, pa) <= 2000); // use uint32_t for bnode_t if overflow
-    b->tree[PA2NODE(b, pa)] += 0x20;
+    b->tree[PA2NODE(b, pa)] += REF_ONE;
 }
 
-static inline void buddy_update(struct Buddy *b, uint32_t node)
+static inline void buddy_update_node(struct Buddy *b, uint32_t node)
 {
-    bnode_t l = (b->tree[node * 2 + 1]) & 0x1f;
-    bnode_t r = (b->tree[node * 2 + 2]) & 0x1f;
-    b->tree[node] &= ~0x1f;
+    bnode_t l = (b->tree[node * 2 + 1]) & SIZE_MASK;
+    bnode_t r = (b->tree[node * 2 + 2]) & SIZE_MASK;
+    b->tree[node] &= ~SIZE_MASK;
     b->tree[node] |= l > r ? l : r;
+}
+
+static inline void buddy_rebuild_node(struct Buddy *b, uint32_t node, bnode_t layer)
+{
+    bnode_t l = (b->tree[node * 2 + 1]) & SIZE_MASK;
+    bnode_t r = (b->tree[node * 2 + 2]) & SIZE_MASK;
+
+    if (l == layer - 1 && r == layer - 1)
+        // Both children are free, merge them
+        b->tree[node] = layer & SIZE_MASK;
+    else
+        b->tree[node] = l > r ? l : r;
 }
 
 static inline uint32_t up_to_power_of_2(uint32_t x)
