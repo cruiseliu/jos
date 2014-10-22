@@ -28,6 +28,8 @@ static struct Command commands[] = {
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
         { "backtrace", "Display stack backtrace", mon_backtrace },
         { "showmappings", "Display memory mapping status", mon_showmappings },
+        { "setpage", "Set page permissions", mon_setpage },
+        { "memdump", "Show memory content", mon_memdump },
         { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
@@ -110,10 +112,44 @@ int mon_showmappings(int argc, char **argv, struct Trapframe *tf)
     if (argc == 3) {
         uint32_t low = strtol(argv[1], NULL, 16);
         uint32_t high = strtol(argv[2], NULL, 16);
-        if (low < high) return showmappings(low, high);
+        if (low <= high) return showmappings(low, high);
     }
 
     cprintf("usage: showmappings low_address high_address\n");
+    return 1;
+}
+
+int mon_setpage(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf(COLOR_YELLOW
+            "WARING: setting wrong flags may crash the core, "
+            "use at your own risk\n"
+            COLOR_NONE);
+
+    if (argc == 3 || argc == 4) {
+        uint32_t low = strtol(argv[1], NULL, 16);
+        uint32_t high = argc == 4 ? strtol(argv[2], NULL, 16) : low;
+        if (low <= high) return setpage(low, high, argv[argc - 1]);
+    }
+
+    cprintf("usage: setpage low_addr [high_addr] [GSDACTUWP]\n");
+    return 1;
+}
+
+int mon_memdump(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf(COLOR_YELLOW
+            "WARNING: dump unavailable address may crash the core, "
+            "use at your own risk\n"
+            COLOR_NONE);
+
+    if (argc == 3 || (argc == 4 && strcmp(argv[1], "-p") == 0)) {
+        uint32_t low = strtol(argv[argc - 2], NULL, 16);
+        uint32_t size = strtol(argv[argc - 1], NULL, 16);
+        if (size > 0) return memdump(low, size, argc == 4);
+    }
+
+    cprintf("usage: memdump [-p] low_addr size\n");
     return 1;
 }
 

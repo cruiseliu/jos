@@ -16,7 +16,9 @@ static bool use_buddy = true;
 size_t npages;			// Amount of physical memory (in pages)
 static size_t npages_basemem;	// Amount of base memory (in pages)
 
-static bool use_pse = false;
+// Force disable PSE by set this to false,
+// otherwise detected by i386_detect_memory()
+static bool use_pse = true;
 
 // These variables are set in mem_init()
 pde_t *kern_pgdir;		// Kernel's initial page directory
@@ -56,6 +58,8 @@ i386_detect_memory(void)
 		npages * PGSIZE / 1024,
 		npages_basemem * PGSIZE / 1024,
 		npages_extmem * PGSIZE / 1024);
+
+        if (!use_pse) return;
 
         uint32_t edx;
         cpuid(1, NULL, NULL, NULL, &edx);
@@ -347,6 +351,7 @@ void page_init_b()
 {
     uint32_t size = up_to_power_of_2(npages);
     pages_b = boot_alloc(SIZE_OF_BUDDY(size));
+    memset(pages_b, 0, SIZE_OF_BUDDY(size));
     pages_b->size = size;
 
     int i;
@@ -357,7 +362,7 @@ void page_init_b()
         pages_b->tree[size - 1 + i] = 1;
 
     for (i = size - 2; i >= 0; i--)
-        buddy_update(pages_b, i);
+        pages_b->tree[i] = pages_b->tree[LEFT_CHILD(i)] + 1;
 }
 
 //
@@ -692,6 +697,7 @@ tlb_invalidate(pde_t *pgdir, void *va)
 	invlpg(va);
 }
 
+#define PTE_FLAG_MASK   0x1ff
 #define PTE_FLAGS(pte)  ((uint32_t) (pte) & 0x1ff)
 #define INVALID_FLAGS   ~0
 
@@ -728,17 +734,16 @@ int showmappings(uint32_t low, uint32_t high)
     uint32_t first_va = 0, last_va = 0;
     uint32_t flags = INVALID_FLAGS;
 
-    // walk-around for integer overflow
-    // eg. 0xffffff00 + PGSIZE = 0x00010f00 < 0xffffffff
     low = ROUNDDOWN(low, PGSIZE);
     while (true) {
-        if (high - low < PGSIZE) break;
-        low += PGSIZE;
-
         pte_t *pte = pgdir_walk(kern_pgdir, (const void *)low, 0);
 
         if (pte && PTE_FLAGS(*pte) == flags) {
             last_va = low;
+
+            if (high - low < PGSIZE) break;
+            low += PGSIZE;
+
             continue;
         }
 
@@ -753,10 +758,74 @@ int showmappings(uint32_t low, uint32_t high)
             first_va = last_va = low;
             flags = PTE_FLAGS(*pte);
         }
+
+        // walk-around for integer overflow
+        // eg. 0xffffff00 + PGSIZE = 0x00010f00 < 0xffffffff
+        if (high - low < PGSIZE) break;
+        low += PGSIZE;
     }
 
     print_pages(first_va, last_va, flags);
 
+    return 0;
+}
+
+int setpage(uint32_t low, uint32_t high, const char *perm)
+{
+    assert(perm);
+
+    uint32_t flags = 0;
+    for (; *perm; perm++) {
+        switch (*perm) {
+            case 'G': case 'g': flags |= PTE_G;   break;
+            case 'S': case 's': flags |= PTE_PS;  break;
+            case 'D': case 'd': flags |= PTE_D;   break;
+            case 'A': case 'a': flags |= PTE_A;   break;
+            case 'C': case 'c': flags |= PTE_PCD; break;
+            case 'T': case 't': flags |= PTE_PWT; break;
+            case 'U': case 'u': flags |= PTE_U;   break;
+            case 'W': case 'w': flags |= PTE_W;   break;
+            case 'P': case 'p': flags |= PTE_P;   break;
+            default:
+                cprintf("Unknown permition %c\n"
+                        "Available permitions are:\n"
+                        "    G: Global\n"
+                        "    S: Page Size\n"
+                        "    D: Dirty\n"
+                        "    A: Accessed\n"
+                        "    C: Cache Disable\n"
+                        "    T: Write Through\n"
+                        "    U: User\n"
+                        "    W: Writeable\n"
+                        "    P: Present\n"
+                        , *perm);
+                return 1;
+        }
+    }
+
+    low = ROUNDDOWN(low, PGSIZE);
+    while (true) {
+        pte_t *pte = pgdir_walk(kern_pgdir, (const void *)low, 0);
+        *pte = (*pte & ~PTE_FLAG_MASK) | flags;
+
+        if (high - low < PGSIZE) break;
+        low += PGSIZE;
+    }
+
+    return 0;
+}
+
+int memdump(uint32_t low, uint32_t size, bool phys)
+{
+    uint32_t i;
+    for (i = 0; i <= size; i += 4) {
+        if (i % 16 == 0) {
+            if (i) cprintf("\n");
+            cprintf("%08x: ", low + i);
+        }
+        cprintf("%08x ", *(phys ? (uint32_t*)KADDR(low + i) : (uint32_t*)(low + i)));
+    }
+    if ((i - 4) % 32) cprintf("\n");
     return 0;
 }
 
