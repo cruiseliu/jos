@@ -18,4 +18,6 @@ enum {
 	MAXERROR
 };
 
+#define OUT_OF_MEM          ~0
+
 #endif	// !JOS_INC_ERROR_H */

@@ -128,6 +128,7 @@ lpt_putc(int c)
 static unsigned addr_6845;
 static uint16_t *crt_buf;
 static uint16_t crt_pos;
+static int crt_mode;
 
 static void
 cga_init(void)
@@ -155,6 +156,8 @@ cga_init(void)
 
 	crt_buf = (uint16_t*) cp;
 	crt_pos = pos;
+
+        crt_mode = 0x0700;
 }
 
 
@@ -162,9 +165,9 @@ cga_init(void)
 static void
 cga_putc(int c)
 {
-	// if no attribute given, then use black on white
+	// if no attribute given, then use default color
 	if (!(c & ~0xFF))
-		c |= 0x0700;
+		c |= crt_mode;
 
 	switch (c & 0xff) {
 	case '\b':
@@ -208,6 +211,34 @@ cga_putc(int c)
 	outb(addr_6845 + 1, crt_pos);
 }
 
+#define CGA_COLOR_BLACK     0
+#define CGA_COLOR_BLUE      1
+#define CGA_COLOR_GREEN     2
+#define CGA_COLOR_CYAN      3
+#define CGA_COLOR_RED       4
+#define CGA_COLOR_MAGENTA   5
+#define CGA_COLOR_WHITE     7
+#define CGA_COLOR_YELLOW    14
+
+static int colorindex[8] = {
+    CGA_COLOR_BLACK, CGA_COLOR_RED, CGA_COLOR_GREEN, CGA_COLOR_YELLOW,
+    CGA_COLOR_BLUE, CGA_COLOR_MAGENTA, CGA_COLOR_CYAN, CGA_COLOR_WHITE
+};
+
+static void cga_setmode(int mode)
+{
+    if (mode == 0)
+        // reset
+        crt_mode = 0x0700;
+
+    else if (30 <= mode && mode <= 37)
+        // foreground color
+        crt_mode = (crt_mode & ~0x0000ff00) | (colorindex[mode - 30] << 8);
+
+    else if (40 <= mode && mode <= 47)
+        // background color
+        crt_mode = (crt_mode & ~0x00ff0000) | (colorindex[mode - 40] << 12);
+}
 
 /***** Keyboard input code *****/
 
@@ -448,10 +479,58 @@ cons_init(void)
 
 // `High'-level console I/O.  Used by readline and cprintf.
 
+#define MAX_ESC_PARAM   0x10    // max size of escape parameters
+
 void
 cputchar(int c)
 {
-	cons_putc(c);
+    static enum EscapeMode { NonEscaped, Escaping, Escaped } mode = NonEscaped;
+
+    static int size = 0;
+    static int val[MAX_ESC_PARAM + 1];
+
+    int i;
+
+    if (c == '\x1b') {
+        // try to enter escape mode,
+        // drop unfinished escape sequence
+        mode = Escaping;
+        size = 0;
+
+    } else if (mode == Escaping) {
+        if (c == '[')  // enter escape mode
+            mode = Escaped;
+
+        else {  // not an escape sequence, ignore \x1b
+            mode = NonEscaped;
+            cons_putc(c);
+        }
+
+    } else if (mode == Escaped) {
+       if ('0' <= c && c <= '9') {
+           if (size == 0)  // if no number yet, add one
+               val[size++] = 0;
+           val[size - 1] = val[size - 1] * 10 + c - '0';
+
+       } else if (c == ';') {
+           // read next number, but ignore last if more than 16 ones
+           if (size < MAX_ESC_PARAM)
+               size++;
+           val[size] = 0;
+
+       } else if (c == 'm') {
+           // set color
+           for (i = 0; i < size; i++)
+               cga_setmode(val[i]);
+           mode = NonEscaped;
+
+       } else {
+           // unsupported escape sequence, do nothing
+           mode = NonEscaped;
+       }
+
+    } else
+        cons_putc(c);
 }
 
 int

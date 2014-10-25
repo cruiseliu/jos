@@ -58,13 +58,48 @@ static const char *trapname(int trapno)
 	return "(unknown trap)";
 }
 
+extern void th0();
+extern void th1();
+extern void th2();
+extern void th3();
+extern void th4();
+extern void th5();
+extern void th6();
+extern void th7();
+extern void th8();
+extern void th10();
+extern void th11();
+extern void th12();
+extern void th13();
+extern void th14();
+extern void th16();
+extern void th17();
+extern void th18();
+extern void th19();
 
 void
 trap_init(void)
 {
 	extern struct Segdesc gdt[];
 
-	// LAB 3: Your code here.
+        SETGATE(idt[T_DIVIDE ], 0, 8, th0 , 0);
+        SETGATE(idt[T_DEBUG  ], 0, 8, th1 , 0);
+        SETGATE(idt[T_NMI    ], 0, 8, th2 , 0);
+        SETGATE(idt[T_BRKPT  ], 0, 8, th3 , 0);
+        SETGATE(idt[T_OFLOW  ], 0, 8, th4 , 0);
+        SETGATE(idt[T_BOUND  ], 0, 8, th5 , 0);
+        SETGATE(idt[T_ILLOP  ], 0, 8, th6 , 0);
+        SETGATE(idt[T_DEVICE ], 0, 8, th7 , 0);
+        SETGATE(idt[T_DBLFLT ], 0, 8, th8 , 0);
+        SETGATE(idt[T_TSS    ], 0, 8, th10, 0);
+        SETGATE(idt[T_SEGNP  ], 0, 8, th11, 0);
+        SETGATE(idt[T_STACK  ], 0, 8, th12, 0);
+        SETGATE(idt[T_GPFLT  ], 0, 8, th13, 0);
+        SETGATE(idt[T_PGFLT  ], 0, 8, th14, 0);
+        SETGATE(idt[T_FPERR  ], 0, 8, th16, 0);
+        SETGATE(idt[T_ALIGN  ], 0, 8, th17, 0);
+        SETGATE(idt[T_MCHK   ], 0, 8, th18, 0);
+        SETGATE(idt[T_SIMDERR], 0, 8, th19, 0);
 
 	// Per-CPU setup 
 	trap_init_percpu();
@@ -189,6 +224,7 @@ trap(struct Trapframe *tf)
 
 	// Return to the current environment, which should be running.
 	assert(curenv && curenv->env_status == ENV_RUNNING);
+
 	env_run(curenv);
 }
 

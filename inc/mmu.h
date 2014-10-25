@@ -38,6 +38,9 @@
 // offset in page
 #define PGOFF(la)	(((uintptr_t) (la)) & 0xFFF)
 
+// offset in page, when PSE enabled
+#define PGOFF_PSE(la)   (((uintptr_t) (la)) & 0x3fffff)
+
 // construct linear address from indexes and offset
 #define PGADDR(d, t, o)	((void*) ((d) << PDXSHIFT | (t) << PTXSHIFT | (o)))
 
@@ -47,6 +50,9 @@
 
 #define PGSIZE		4096		// bytes mapped by a page
 #define PGSHIFT		12		// log2(PGSIZE)
+
+#define PGSIZE_PSE      0x400000        // bytes mapped by a page, when PSE enabled
+#define PGSHIFT_PSE     22              // log2(PGSIZE_PSE)
 
 #define PTSIZE		(PGSIZE*NPTENTRIES) // bytes mapped by a page directory entry
 #define PTSHIFT		22		// log2(PTSIZE)

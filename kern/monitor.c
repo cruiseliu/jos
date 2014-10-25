@@ -11,9 +11,11 @@
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
 #include <kern/trap.h>
+#include <kern/pmap.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
+#define LAB1    // print 5 args in backtrace for lab1 grading
 
 struct Command {
 	const char *name;
@@ -25,6 +27,11 @@ struct Command {
 static struct Command commands[] = {
 	{ "help", "Display this list of commands", mon_help },
 	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+        { "backtrace", "Display stack backtrace", mon_backtrace },
+        { "showmappings", "Display memory mapping status", mon_showmappings },
+        { "setpage", "Set page permissions", mon_setpage },
+        { "memdump", "Show memory content", mon_memdump },
+        { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -56,14 +63,109 @@ mon_kerninfo(int argc, char **argv, struct Trapframe *tf)
 	return 0;
 }
 
+typedef union addr_t addr_t;
+
+union addr_t {
+    uint32_t addr;
+    uint32_t *data;
+    addr_t *ptr;
+};
+
 int
 mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 {
-	// Your code here.
-	return 0;
+    cprintf("Stack backtrace:\n");
+    addr_t ebp;
+    ebp.addr = read_ebp();
+    for (; ebp.ptr; ebp = *ebp.ptr) {
+        struct Eipdebuginfo info;
+        if (debuginfo_eip(ebp.data[1], &info)) {
+            cprintf("Failed to read debug info\n");
+            continue;
+        }
+
+#ifdef LAB1
+        cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n",
+                ebp.addr, ebp.data[1], // ebp , eip
+                ebp.data[2], ebp.data[3], ebp.data[4], ebp.data[5], ebp.data[6]);
+#else
+        cprintf("  ebp %08x  eip %08x  args", ebp.addr, ebp.data[1]);
+        int i;
+        for (i = 0; i < info.eip_fn_narg; i++)
+            cprintf(" %08x", ebp.data[i + 2]);
+        cprintf("\n");
+#endif
+
+        cprintf("         %s:%d: %.*s+%d\n",
+                info.eip_file, info.eip_line,
+                info.eip_fn_namelen, info.eip_fn_name,
+                ebp.data[1] - info.eip_fn_addr);
+    }
+
+    return 0;
 }
 
+int mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+    if (argc == 1)
+        return showmappings(0, 0xffffffff);
 
+    if (argc == 3) {
+        uint32_t low = strtol(argv[1], NULL, 16);
+        uint32_t high = strtol(argv[2], NULL, 16);
+        if (low <= high) return showmappings(low, high);
+    }
+
+    cprintf("usage: showmappings low_address high_address\n");
+    return 1;
+}
+
+int mon_setpage(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf(COLOR_YELLOW
+            "WARING: setting wrong flags may crash the core, "
+            "use at your own risk\n"
+            COLOR_NONE);
+
+    if (argc == 3 || argc == 4) {
+        uint32_t low = strtol(argv[1], NULL, 16);
+        uint32_t high = argc == 4 ? strtol(argv[2], NULL, 16) : low;
+        if (low <= high) return setpage(low, high, argv[argc - 1]);
+    }
+
+    cprintf("usage: setpage low_addr [high_addr] [GSDACTUWP]\n");
+    return 1;
+}
+
+int mon_memdump(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf(COLOR_YELLOW
+            "WARNING: dump unavailable address may crash the core, "
+            "use at your own risk\n"
+            COLOR_NONE);
+
+    if (argc == 3 || (argc == 4 && strcmp(argv[1], "-p") == 0)) {
+        uint32_t low = strtol(argv[argc - 2], NULL, 16);
+        uint32_t size = strtol(argv[argc - 1], NULL, 16);
+        if (size > 0) return memdump(low, size, argc == 4);
+    }
+
+    cprintf("usage: memdump [-p] low_addr size\n");
+    return 1;
+}
+
+int mon_colortest(int argc, char **argv, struct Trapframe *tf)
+{
+    cprintf(COLOR_RED       "Red"
+            COLOR_GREEN     "Green"
+            COLOR_YELLOW    "Yellow"
+            COLOR_BLUE      "Blue"
+            COLOR_MAGENTA   "Magenta"
+            COLOR_CYAN      "Cyan"
+            "\x1b[30;47mBlack"
+            "\n"COLOR_NONE);
+    return 0;
+}
 
 /***** Kernel monitor command interpreter *****/
 
@@ -121,7 +223,7 @@ monitor(struct Trapframe *tf)
 		print_trapframe(tf);
 
 	while (1) {
-		buf = readline("K> ");
+		buf = readline(COLOR_GREEN"K> "COLOR_NONE);
 		if (buf != NULL)
 			if (runcmd(buf, tf) < 0)
 				break;
