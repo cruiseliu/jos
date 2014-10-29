@@ -108,12 +108,12 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 int mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 {
     if (argc == 1)
-        return showmappings(0, 0xffffffff);
+        return showmappings(NULL, 0, 0xffffffff);
 
     if (argc == 3) {
         uint32_t low = strtol(argv[1], NULL, 16);
         uint32_t high = strtol(argv[2], NULL, 16);
-        if (low <= high) return showmappings(low, high);
+        if (low <= high) return showmappings(NULL, low, high);
     }
 
     cprintf("usage: showmappings low_address high_address\n");

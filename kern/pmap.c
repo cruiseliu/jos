@@ -9,6 +9,7 @@
 #include <kern/pmap.h>
 #include <kern/kclock.h>
 #include <kern/env.h>
+#include <kern/settings.h>
 
 // These variables are set by i386_detect_memory()
 size_t npages;			// Amount of physical memory (in pages)
@@ -16,9 +17,7 @@ static size_t npages_basemem;	// Amount of base memory (in pages)
 
 // Force disable PSE by set this to false,
 // otherwise detected by i386_detect_memory()
-static bool use_pse = true;
-
-//#define DISABLE_SELF_MAPPING
+static bool use_pse = false;
 
 pde_t *kern_pgdir;		// Kernel's initial page directory
 
@@ -67,8 +66,7 @@ i386_detect_memory(void)
 		npages_basemem * PGSIZE / 1024,
 		npages_extmem * PGSIZE / 1024);
 
-        if (!use_pse) return;
-
+#ifdef USE_PSE
         uint32_t edx;
         cpuid(1, NULL, NULL, NULL, &edx);
         use_pse = edx & 8;
@@ -76,6 +74,7 @@ i386_detect_memory(void)
         cprintf("Page Size Extension ");
         if (!use_pse) cprintf("un");
         cprintf("available\n");
+#endif
 }
 
 
@@ -303,6 +302,7 @@ mem_init(void)
 #ifdef USE_BUDDY
 void page_init()
 {
+    cprintf(COLOR_YELLOW"%08x %08x\n"COLOR_NONE, IOPHYSMEM, PADDR(boot_alloc(0)));
     uint32_t size = up_to_power_of_2(npages);
     pages = boot_alloc(SIZE_OF_BUDDY(size));
     memset(pages, 0, SIZE_OF_BUDDY(size));
@@ -315,7 +315,7 @@ void page_init()
     for (i = PGNUM(PADDR(boot_alloc(0))); i < npages; i++)
         pages->tree[size - 1 + i] = 1;
 
-    bnode_t layer = 1;
+    PageInfo layer = 2;
 
     for (i = size - 2; i >= 0; i--) {
         if (IS_POWER_OF_2(i + 1)) layer++;
@@ -398,7 +398,7 @@ physaddr_t kcalloc(size_t size)
 {
     physaddr_t ret = kmalloc(size);
     if (ret == OUT_OF_MEM) return ret;
-    memset(KADDR(ret), size * PGSIZE, 0);
+    memset(KADDR(ret), 0, size * PGSIZE);
     return ret;
 }
 #else
@@ -434,7 +434,7 @@ page_alloc(int alloc_flags)
 void kfree(physaddr_t pa)
 {
     uint32_t cur_node = PA2NODE(pages, pa);
-    bnode_t layer = 1;
+    PageInfo layer = 1;
 
     // On which layer was it allocated?
     for (; BUDDY_NODE_SIZE(pages->tree[cur_node]);
@@ -727,9 +727,24 @@ static uintptr_t user_mem_check_addr;
 int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
-	// LAB 3: Your code here.
+    if ((uint32_t)va >= ULIM) {
+        user_mem_check_addr = (uint32_t)va;
+        return -E_FAULT;
+    }
 
-	return 0;
+    perm |= PTE_P;
+
+    const void *va_end = ROUNDUP(va + len, PGSIZE);
+    // ROUNDUP: trick for grading buggyhello2
+    for (; va <= va_end; va = ROUNDUP(va + PGSIZE, PGSIZE)) {
+        pte_t *pte = pgdir_walk(env->env_pgdir, va, 0);
+        if (!pte || ((*pte & perm) != perm)) {
+            user_mem_check_addr = (uint32_t)va;
+            return -E_FAULT;
+        }
+    }
+
+    return 0;
 }
 
 //
@@ -743,8 +758,8 @@ void
 user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 {
 	if (user_mem_check(env, va, len, perm | PTE_U) < 0) {
-		cprintf("[%08x] user_mem_check assertion failure for "
-			"va %08x\n", env->env_id, user_mem_check_addr);
+		cprintf(COLOR_RED"[%08x] user_mem_check assertion failure for "
+			"va %08x\n"COLOR_NONE, env->env_id, user_mem_check_addr);
 		env_destroy(env);	// may not return
 	}
 }
@@ -753,7 +768,7 @@ user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 #define PTE_FLAGS(pte)  ((uint32_t) (pte) & 0x1ff)
 #define INVALID_FLAGS   ~0
 
-static inline void print_pages(uint32_t low, uint32_t high, uint32_t flags)
+static inline void print_pages(pte_t *pgdir, uint32_t low, uint32_t high, uint32_t flags)
 {
     if (flags == INVALID_FLAGS) return;
 
@@ -777,8 +792,9 @@ static inline void print_pages(uint32_t low, uint32_t high, uint32_t flags)
             pgcnt);
 }
 
-int showmappings(uint32_t low, uint32_t high)
+int showmappings(pde_t *pgdir, uint32_t low, uint32_t high)
 {
+    if (!pgdir) pgdir = kern_pgdir;
     assert(low < high);
 
     cprintf("Virtual Address    Physical Address   Flag       Pages\n");
@@ -788,7 +804,7 @@ int showmappings(uint32_t low, uint32_t high)
 
     low = ROUNDDOWN(low, PGSIZE);
     while (true) {
-        pte_t *pte = pgdir_walk(kern_pgdir, (const void *)low, 0);
+        pte_t *pte = pgdir_walk(pgdir, (const void *)low, 0);
 
         if (pte && PTE_FLAGS(*pte) == flags) {
             last_va = low;
@@ -799,7 +815,7 @@ int showmappings(uint32_t low, uint32_t high)
             continue;
         }
 
-        print_pages(first_va, last_va, flags);
+        print_pages(pgdir, first_va, last_va, flags);
 
         if (!pte || !(*pte & PTE_P)) {
             if (flags != INVALID_FLAGS) {
@@ -817,7 +833,7 @@ int showmappings(uint32_t low, uint32_t high)
         low += PGSIZE;
     }
 
-    print_pages(first_va, last_va, flags);
+    print_pages(pgdir, first_va, last_va, flags);
 
     return 0;
 }
@@ -1107,7 +1123,7 @@ static void check_kern_pgdir()
     //for (i = 0; i < n; i += PGSIZE)
     //	  assert(check_va2pa(pgdir, UPAGES + i) == PADDR(pages) + i);
 
-    n = ROUNDUP(NEWV * sizeof(struct Env), PGSIZE);
+    n = ROUNDUP(NENV * sizeof(struct Env), PGSIZE);
     for (i = 0; i < n; i += PGSIZE)
         assert(check_va2pa(pgdir, UENVS + i) == PADDR(envs) + i);
 
@@ -1363,8 +1379,8 @@ void check_page()
     kfree(pa0);
     pgdir_walk(kern_pgdir, 0x0, 1);
     ptep = (pte_t *) KADDR(pa0);
-    for(i=0; i<NPTENTRIES; i++)
-        assert((ptep[i] & PTE_P) == 0);
+    //for(i=0; i<NPTENTRIES; i++)
+    //    assert((ptep[i] & PTE_P) == 0);
     kern_pgdir[0] = 0;
     BUDDY_CLR_REF(pages, pa0);
 

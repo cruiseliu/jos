@@ -12,6 +12,10 @@
 #include <kern/trap.h>
 #include <kern/monitor.h>
 
+#ifdef USE_BUDDY
+#include <kern/buddy.h>
+#endif
+
 struct Env *envs = NULL;		// All environments
 struct Env *curenv = NULL;		// The current env
 static struct Env *env_free_list;	// Free environment list
@@ -190,7 +194,6 @@ env_setup_vm(struct Env *e)
 	//	pp_ref for env_free to work correctly.
 	//    - The functions in kern/pmap.h are handy.
 #ifdef USE_BUDDY
-        abc();
         e->env_pgdir = KADDR(pa);
         BUDDY_INC_REF(pages, pa);
 #else
@@ -198,7 +201,6 @@ env_setup_vm(struct Env *e)
         p->pp_ref++;
 #endif
         memcpy(e->env_pgdir, kern_pgdir, PGSIZE);
-        memset(e->env_pgdir, 0, PDX(UTOP) * sizeof(pte_t));
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -280,10 +282,18 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 static void
 region_alloc(struct Env *e, void *va, size_t len)
 {
-#ifndef USE_BUDDY
     // should be OK even if (va + len) > 0xffffffff
     len = (ROUNDUP(va + len, PGSIZE) - ROUNDDOWN(va, PGSIZE));
     va = ROUNDDOWN(va, PGSIZE);
+#ifdef USE_BUDDY
+    // TODO: alloc once
+    int i;
+    for (i = 0; i < len; i += PGSIZE) {
+        physaddr_t pa = kcalloc(1);
+        if (pa == OUT_OF_MEM) panic("Out of memory!\n");
+        page_insert(e->env_pgdir, pa, va + i, PTE_W | PTE_U);
+    }
+#else
     int i;
     for (i = 0; i < len; i += PGSIZE) { // don't use va in case of overflow
         struct PageInfo *p = page_alloc(ALLOC_ZERO);
@@ -515,16 +525,21 @@ env_run(struct Env *e)
 	//	e->env_tf.  Go back through the code you wrote above
 	//	and make sure you have set the relevant parts of
 	//	e->env_tf to sensible values.
+    if (e != curenv) {
+        if (curenv) { // && curenv->env_status = ENV_RUNNING)
+            // FIXME: debugging purpose code
+            assert(curenv->env_status == ENV_RUNNING);
+            curenv->env_status = ENV_RUNNABLE;
+        }
 
-    assert(curenv == NULL);
+        e->env_status = ENV_RUNNING;
+        e->env_runs++;
 
-    e->env_status = ENV_RUNNING;
-    e->env_runs++;
+        // this must be done ealier
+        lcr3(PADDR(e->env_pgdir));
 
-    // this must be done ealier
-    //lcr3(PADDR(e->env_pgdir));
-
-    curenv = e;
+        curenv = e;
+    }
 
     env_pop_tf(&curenv->env_tf);
 }
