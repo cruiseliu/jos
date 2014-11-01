@@ -12,10 +12,6 @@
 #include <kern/trap.h>
 #include <kern/monitor.h>
 
-#ifdef USE_BUDDY
-#include <kern/buddy.h>
-#endif
-
 struct Env *envs = NULL;		// All environments
 struct Env *curenv = NULL;		// The current env
 static struct Env *env_free_list;	// Free environment list
@@ -167,16 +163,11 @@ static int
 env_setup_vm(struct Env *e)
 {
 	int i;
-#ifdef USE_BUDDY
-        physaddr_t pa = kcalloc(1);
-        if (pa == OUT_OF_MEM) return -E_NO_MEM;
-#else
-	struct PageInfo *p = NULL;
+	PageInfo *p = NULL;
 
 	// Allocate a page for the page directory
 	if (!(p = page_alloc(ALLOC_ZERO)))
 		return -E_NO_MEM;
-#endif
 
 	// Now, set e->env_pgdir and initialize the page directory.
 	//
@@ -193,13 +184,8 @@ env_setup_vm(struct Env *e)
 	//	is an exception -- you need to increment env_pgdir's
 	//	pp_ref for env_free to work correctly.
 	//    - The functions in kern/pmap.h are handy.
-#ifdef USE_BUDDY
-        e->env_pgdir = KADDR(pa);
-        BUDDY_INC_REF(pages, pa);
-#else
         e->env_pgdir = page2kva(p);
-        p->pp_ref++;
-#endif
+        inc_ref(p);
         memcpy(e->env_pgdir, kern_pgdir, PGSIZE);
 
 	// UVPT maps the env's own page table read-only.
@@ -282,25 +268,6 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 static void
 region_alloc(struct Env *e, void *va, size_t len)
 {
-    // should be OK even if (va + len) > 0xffffffff
-    len = (ROUNDUP(va + len, PGSIZE) - ROUNDDOWN(va, PGSIZE));
-    va = ROUNDDOWN(va, PGSIZE);
-#ifdef USE_BUDDY
-    // TODO: alloc once
-    int i;
-    for (i = 0; i < len; i += PGSIZE) {
-        physaddr_t pa = kcalloc(1);
-        if (pa == OUT_OF_MEM) panic("Out of memory!\n");
-        page_insert(e->env_pgdir, pa, va + i, PTE_W | PTE_U);
-    }
-#else
-    int i;
-    for (i = 0; i < len; i += PGSIZE) { // don't use va in case of overflow
-        struct PageInfo *p = page_alloc(ALLOC_ZERO);
-        if (!p) panic("Out of memory\n");
-        page_insert(e->env_pgdir, p, va + i, PTE_W | PTE_U);
-    }
-#endif
 	// LAB 3: Your code here.
 	// (But only if you need it for load_icode.)
 	//
@@ -308,6 +275,17 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+
+    // TODO: use kmalloc
+    // should be OK even if (va + len) > 0xffffffff
+    len = (ROUNDUP(va + len, PGSIZE) - ROUNDDOWN(va, PGSIZE));
+    va = ROUNDDOWN(va, PGSIZE);
+    int i;
+    for (i = 0; i < len; i += PGSIZE) { // don't use va in case of overflow
+        PageInfo *p = page_alloc(ALLOC_ZERO);
+        if (!p) panic("Out of memory\n");
+        page_insert(e->env_pgdir, p, va + i, PTE_W | PTE_U);
+    }
 }
 
 //
@@ -445,21 +423,13 @@ env_free(struct Env *e)
 
 		// free the page table itself
 		e->env_pgdir[pdeno] = 0;
-#ifdef USE_BUDDY
-                page_decref(pa);
-#else
 		page_decref(pa2page(pa));
-#endif
 	}
 
 	// free the page directory
 	pa = PADDR(e->env_pgdir);
 	e->env_pgdir = 0;
-#ifdef USE_BUDDY
-        page_decref(pa);
-#else
 	page_decref(pa2page(pa));
-#endif
 
 	// return the environment to the free list
 	e->env_status = ENV_FREE;

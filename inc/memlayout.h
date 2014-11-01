@@ -4,6 +4,8 @@
 #ifndef __ASSEMBLER__
 #include <inc/types.h>
 #include <inc/mmu.h>
+
+#include <kern/settings.h>
 #endif /* not __ASSEMBLER__ */
 
 /*
@@ -162,6 +164,16 @@ extern volatile pte_t uvpt[];     // VA of "virtual page table"
 extern volatile pde_t uvpd[];     // VA of current page directory
 #endif
 
+#ifdef USE_BUDDY
+
+// Lowest 5 bits represents max free space under this node, in "log2 + 1" form
+// i.e. 0 for 0, 1 for 1, 2 for 4, 3 for 8, 4 for 16, 5 for 32, etc.
+// Higher bits represents the reference count, only 11 bits (0~2047) available
+// as uint16_t. Use uint32_t or even uint64_t if you needs more.
+typedef uint16_t PageInfo;
+
+#else
+
 /*
  * Page descriptor structures, mapped at UPAGES.
  * Read/write to the kernel, read-only to user programs.
@@ -183,6 +195,10 @@ struct PageInfo {
 
 	uint16_t pp_ref;
 };
+
+typedef struct PageInfo PageInfo;
+
+#endif // USE_BUDDY
 
 #endif /* !__ASSEMBLER__ */
 #endif /* !JOS_INC_MEMLAYOUT_H */

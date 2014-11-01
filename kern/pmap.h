@@ -14,14 +14,13 @@ struct Env;
 
 extern char bootstacktop[], bootstack[];
 
-#ifdef USE_BUDDY
-struct Buddy;
-extern struct Buddy *pages;
-#else
-extern struct PageInfo *pages;
-#endif
+extern PageInfo *pages;
 
 extern size_t npages;
+
+#ifdef USE_BUDDY
+extern size_t buddy_size;
+#endif
 
 extern pde_t *kern_pgdir;
 
@@ -62,37 +61,52 @@ void	mem_init(void);
 
 void	page_init(void);
 
-#ifdef USE_BUDDY
-physaddr_t kmalloc(size_t size);
-physaddr_t kcalloc(size_t size);
-void page_free(physaddr_t pa);
-int page_insert(pde_t *pgdir, physaddr_t pa, void *va, int perm);
-void page_remove(pde_t *pgdir, void *va);
-physaddr_t page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
-void page_decref(physaddr_t pa);
-#else
-struct PageInfo *page_alloc(int alloc_flags);
-void	page_free(struct PageInfo *pp);
-int	page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm);
+PageInfo *page_alloc(int alloc_flags);
+void	page_free(PageInfo *pp);
+int	page_insert(pde_t *pgdir, PageInfo *pp, void *va, int perm);
 void	page_remove(pde_t *pgdir, void *va);
-struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
-void	page_decref(struct PageInfo *pp);
-#endif
+PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store);
+void	page_decref(PageInfo *pp);
 
 void	tlb_invalidate(pde_t *pgdir, void *va);
 
 int	user_mem_check(struct Env *env, const void *va, size_t len, int perm);
 void	user_mem_assert(struct Env *env, const void *va, size_t len, int perm);
 
-#ifndef USE_BUDDY
+#ifdef USE_BUDDY
+
+physaddr_t kmalloc(size_t size);
+physaddr_t kcalloc(size_t size);
+void kfree(physaddr_t pa);
+
+#define SIZE_MASK           0x1f
+#define REF_ONE             0x20    // SIZE_MASK + 1
+#define REF_SHIFT           5       // log2(REF_ONE)
+
+// FIXME: only available for single page
+static inline physaddr_t page2pa(PageInfo *pp)
+{
+    return ((pp - pages) + 1 - buddy_size) << PGSHIFT;
+}
+
+static inline PageInfo* pa2page(physaddr_t pa)
+{
+    size_t idx = (pa >> PGSHIFT) + buddy_size - 1;
+    //if (idx >= npages)
+    if (idx >= buddy_size * 2)
+        panic("pa2page called with invalid pa %08x (pages[%d])", pa, idx);
+    return &pages[idx];
+}
+
+#else
 
 static inline physaddr_t
-page2pa(struct PageInfo *pp)
+page2pa(PageInfo *pp)
 {
 	return (pp - pages) << PGSHIFT;
 }
 
-static inline struct PageInfo*
+static inline PageInfo*
 pa2page(physaddr_t pa)
 {
 	if (PGNUM(pa) >= npages)
@@ -100,13 +114,52 @@ pa2page(physaddr_t pa)
 	return &pages[PGNUM(pa)];
 }
 
+#endif
+
+static inline int inc_ref(PageInfo *p)
+{
+#ifdef USE_BUDDY
+    *p += REF_ONE;
+    return *p >> REF_SHIFT;
+#else
+    return ++p->pp_ref;
+#endif
+}
+
+static inline int dec_ref(PageInfo *p)
+{
+#ifdef USE_BUDDY
+    *p -= REF_ONE;
+    return *p >> REF_SHIFT;
+#else
+    return --p->pp_ref;
+#endif
+}
+
+static inline int get_ref(PageInfo *p)
+{
+#ifdef USE_BUDDY
+    return *p >> REF_SHIFT;
+#else
+    return p->pp_ref;
+#endif
+}
+
+// used by checkers
+static inline void clr_ref(PageInfo *p)
+{
+#ifdef USE_BUDDY
+    *p &= SIZE_MASK;
+#else
+    p->pp_ref = 0;
+#endif
+}
+
 static inline void*
-page2kva(struct PageInfo *pp)
+page2kva(PageInfo *pp)
 {
 	return KADDR(page2pa(pp));
 }
-
-#endif
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
 
