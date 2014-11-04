@@ -67,13 +67,8 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
         int i;
-        for (i = 0; i <= 19; i++) {
-            if (i == T_BRKPT) {
-                SETGATE(idt[i], 0, 8, vector[i], 3);
-            } else if (i != 9 && i != 15) {
-                SETGATE(idt[i], 0, 8, vector[i], 0);
-            }
-        }
+        for (i = 0; i <= 19; i++)
+            SETGATE(idt[i], 0, 8, vector[i], i == T_BRKPT ? 3 : 0);
         SETGATE(idt[T_SYSCALL], 0, 8, vector[48], 3);
 
 	// Per-CPU setup 

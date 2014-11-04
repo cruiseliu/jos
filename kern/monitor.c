@@ -33,7 +33,8 @@ static struct Command commands[] = {
         { "setpage", "Set page permissions", mon_setpage },
         { "memdump", "Show memory content", mon_memdump },
         { "continue", "Continue program after breakpoint", mon_continue },
-        { "step", "Step one instruction after breakpoint", mon_step },
+        { "si", "Step one instruction exactly", mon_si },
+        { "step", "Step program until it reaches a different source line", mon_step },
         { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
@@ -173,6 +174,8 @@ int mon_continue(int argc, char **argv, struct Trapframe *tf)
     return 2;
 }
 
+static bool stepping = false;
+
 int mon_step(int argc, char **argv, struct Trapframe *tf)
 {
     if (!tf || (tf->tf_trapno != T_BRKPT && tf->tf_trapno != T_DEBUG)) {
@@ -180,19 +183,25 @@ int mon_step(int argc, char **argv, struct Trapframe *tf)
         return 1;
     }
 
-    tf->tf_eflags |= FL_TF;
+    stepping = true;
 
-    struct Eipdebuginfo info;
-    debuginfo_eip(tf->tf_eip, &info);
+    if (step_inst(tf, true) != 0) {
+        cprintf("Failed to continue program\n");
+        return 2;
 
-    cprintf("eip=%08x %s:%d: %.*s+%d\n",
-            tf->tf_eip,
-            info.eip_file, info.eip_line,
-            info.eip_fn_namelen, info.eip_fn_name,
-            tf->tf_eip - info.eip_fn_addr);
+    } else
+        return 0;
+}
 
-    // should never return
-    env_run(curenv);
+int mon_si(int argc, char **argv, struct Trapframe *tf)
+{
+    if (!tf || (tf->tf_trapno != T_BRKPT && tf->tf_trapno != T_DEBUG)) {
+        cprintf("No breakpoint found, trapno is %d\n", tf ? tf->tf_trapno : -1);
+        return 1;
+    }
+
+    // should not return
+    step_inst(tf, false);
 
     cprintf("Failed to continue program\n");
     return 2;
@@ -258,6 +267,9 @@ runcmd(char *buf, struct Trapframe *tf)
 void
 monitor(struct Trapframe *tf)
 {
+        if (stepping && step_inst(tf, true) == 0)
+            stepping = false;
+
 	char *buf;
 
 	cprintf("Welcome to the JOS kernel monitor!\n");

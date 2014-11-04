@@ -6,6 +6,7 @@
 #include <kern/kdebug.h>
 #include <kern/pmap.h>
 #include <kern/env.h>
+#include <kern/udis86.h>
 
 extern const struct Stab __STAB_BEGIN__[];	// Beginning of stabs table
 extern const struct Stab __STAB_END__[];	// End of stabs table
@@ -236,4 +237,55 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 			info->eip_fn_narg++;
 
 	return 0;
+}
+
+int step_inst(struct Trapframe *tf, bool autorun)
+{
+    static const char *cur_file = NULL;
+    static int cur_line = 0;
+
+    struct Eipdebuginfo info;
+    debuginfo_eip(tf->tf_eip, &info);
+
+    // symbol info
+    cprintf(COLOR_CYAN"%s:%d: %.*s+%d\n",
+            info.eip_file, info.eip_line,
+            info.eip_fn_namelen, info.eip_fn_name,
+            tf->tf_eip - info.eip_fn_addr);
+
+    // initialize disassembler
+    static bool first_time = true;
+    static ud_t u;
+    if (first_time) {
+        ud_init(&u);
+        ud_set_mode(&u, 32);
+        ud_set_syntax(&u, UD_SYN_ATT);
+    }
+
+    uint8_t *inst = (uint8_t*)tf->tf_eip;
+    ud_set_input_buffer(&u, inst, 32);
+    // 32 is guessed max instruction length
+
+    // print assembly code
+    int i;
+    int inst_len = ud_disassemble(&u);
+    cprintf("%08x:    ", tf->tf_eip);
+    for (i = 0; i < inst_len; i++)
+        cprintf("%02x ", inst[i]);
+    for (; i < 8; i++)
+        cprintf("   ");
+    cprintf("    %s\n"COLOR_NONE, ud_insn_asm(&u));
+
+    if (autorun && (cur_file != info.eip_file || cur_line != info.eip_line)) {
+        cur_file = info.eip_file;
+        cur_line = info.eip_line;
+        return 0;
+    } else {
+        tf->tf_eflags |= FL_TF;
+        env_run(curenv);
+       
+        // should never reach here
+        panic("step failed\n");
+        return -1;
+    }
 }

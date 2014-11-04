@@ -17,4 +17,8 @@ struct Eipdebuginfo {
 
 int debuginfo_eip(uintptr_t eip, struct Eipdebuginfo *info);
 
+struct Trapframe;
+
+int step_inst(struct Trapframe *tf, bool autorun);
+
 #endif

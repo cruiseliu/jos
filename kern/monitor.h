@@ -19,6 +19,7 @@ int mon_showmappings(int argc, char **argv, struct Trapframe *tf);
 int mon_setpage(int argc, char **argv, struct Trapframe *tf);
 int mon_memdump(int argc, char **argv, struct Trapframe *tf);
 int mon_continue(int argc, char **argv, struct Trapframe *tf);
+int mon_si(int argc, char **argv, struct Trapframe *tf);
 int mon_step(int argc, char **argv, struct Trapframe *tf);
 int mon_colortest(int argc, char **argv, struct Trapframe *tf);
 
