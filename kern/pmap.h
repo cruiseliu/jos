@@ -92,7 +92,6 @@ static inline physaddr_t page2pa(PageInfo *pp)
 static inline PageInfo* pa2page(physaddr_t pa)
 {
     size_t idx = (pa >> PGSHIFT) + buddy_size - 1;
-    //if (idx >= npages)
     if (idx >= buddy_size * 2)
         panic("pa2page called with invalid pa %08x (pages[%d])", pa, idx);
     return &pages[idx];

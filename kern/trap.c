@@ -58,53 +58,30 @@ static const char *trapname(int trapno)
 	return "(unknown trap)";
 }
 
-extern void th0();
-extern void th1();
-extern void th2();
-extern void th3();
-extern void th4();
-extern void th5();
-extern void th6();
-extern void th7();
-extern void th8();
-extern void th10();
-extern void th11();
-extern void th12();
-extern void th13();
-extern void th14();
-extern void th16();
-extern void th17();
-extern void th18();
-extern void th19();
-extern void th48();
+extern void (*vector[])();
+extern void* sysenter_handler();
 
 void
 trap_init(void)
 {
 	extern struct Segdesc gdt[];
 
-        SETGATE(idt[T_DIVIDE ], 0, 8, th0 , 0);
-        SETGATE(idt[T_DEBUG  ], 0, 8, th1 , 0);
-        SETGATE(idt[T_NMI    ], 0, 8, th2 , 0);
-        SETGATE(idt[T_BRKPT  ], 0, 8, th3 , 3);
-        SETGATE(idt[T_OFLOW  ], 0, 8, th4 , 0);
-        SETGATE(idt[T_BOUND  ], 0, 8, th5 , 0);
-        SETGATE(idt[T_ILLOP  ], 0, 8, th6 , 0);
-        SETGATE(idt[T_DEVICE ], 0, 8, th7 , 0);
-        SETGATE(idt[T_DBLFLT ], 0, 8, th8 , 0);
-        SETGATE(idt[T_TSS    ], 0, 8, th10, 0);
-        SETGATE(idt[T_SEGNP  ], 0, 8, th11, 0);
-        SETGATE(idt[T_STACK  ], 0, 8, th12, 0);
-        SETGATE(idt[T_GPFLT  ], 0, 8, th13, 0);
-        SETGATE(idt[T_PGFLT  ], 0, 8, th14, 0);
-        SETGATE(idt[T_FPERR  ], 0, 8, th16, 0);
-        SETGATE(idt[T_ALIGN  ], 0, 8, th17, 0);
-        SETGATE(idt[T_MCHK   ], 0, 8, th18, 0);
-        SETGATE(idt[T_SIMDERR], 0, 8, th19, 0);
-        SETGATE(idt[T_SYSCALL], 0, 8, th48, 3);
+        int i;
+        for (i = 0; i <= 19; i++) {
+            if (i == T_BRKPT) {
+                SETGATE(idt[i], 0, 8, vector[i], 3);
+            } else if (i != 9 && i != 15) {
+                SETGATE(idt[i], 0, 8, vector[i], 0);
+            }
+        }
+        SETGATE(idt[T_SYSCALL], 0, 8, vector[48], 3);
 
 	// Per-CPU setup 
 	trap_init_percpu();
+
+        wrmsr(0x174, GD_KT, 0);
+        wrmsr(0x175, KSTACKTOP, 0);
+        wrmsr(0x176, (uint32_t)sysenter_handler, 0);
 }
 
 // Initialize and load the per-CPU TSS and IDT
@@ -184,6 +161,7 @@ trap_dispatch(struct Trapframe *tf)
             page_fault_handler(tf);
             return;
         case T_BRKPT:
+        case T_DEBUG:
             monitor(tf);
             return;
         case T_SYSCALL:
@@ -206,6 +184,19 @@ trap_dispatch(struct Trapframe *tf)
         return;
     }
 }
+
+void trap_sysenter(struct Trapframe *tf)
+{
+    curenv->env_tf = *tf;
+    tf->tf_regs.reg_eax = syscall(
+            tf->tf_regs.reg_eax,
+            tf->tf_regs.reg_edx,
+            tf->tf_regs.reg_ecx,
+            tf->tf_regs.reg_ebx,
+            tf->tf_regs.reg_edi,
+            0);
+}
+
 
 void
 trap(struct Trapframe *tf)

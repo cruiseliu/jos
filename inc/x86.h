@@ -34,6 +34,7 @@ static __inline uint32_t read_ebp(void) __attribute__((always_inline));
 static __inline uint32_t read_esp(void) __attribute__((always_inline));
 static __inline void cpuid(uint32_t info, uint32_t *eaxp, uint32_t *ebxp, uint32_t *ecxp, uint32_t *edxp);
 static __inline uint64_t read_tsc(void) __attribute__((always_inline));
+static __inline void wrmsr(uint32_t msr, uint32_t val1, uint32_t val2);
 
 static __inline void
 breakpoint(void)
@@ -291,6 +292,11 @@ xchg(volatile uint32_t *addr, uint32_t newval)
 			"1" (newval) :
 			"cc");
 	return result;
+}
+
+static __inline void wrmsr(uint32_t msr, uint32_t val1, uint32_t val2)
+{
+    __asm __volatile("wrmsr" : : "c" (msr), "a" (val1), "d" (val2));
 }
 
 #endif /* !JOS_INC_X86_H */

@@ -5,6 +5,8 @@
 void
 umain(int argc, char **argv)
 {
+    cprintf("======================\n");
 	asm volatile("int $3");
+        cprintf("------------------------\n");
 }
 

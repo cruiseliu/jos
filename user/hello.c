@@ -4,6 +4,6 @@
 void
 umain(int argc, char **argv)
 {
-	cprintf("hello, world\n");
-	cprintf("i am environment %08x\n", thisenv->env_id);
+	cprintf(COLOR_CYAN"hello, world\n"COLOR_NONE);
+	cprintf(COLOR_CYAN"i am environment %08x\n"COLOR_NONE, thisenv->env_id);
 }

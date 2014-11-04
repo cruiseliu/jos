@@ -12,6 +12,7 @@
 #include <kern/kdebug.h>
 #include <kern/trap.h>
 #include <kern/pmap.h>
+#include <kern/env.h>
 
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
@@ -31,6 +32,8 @@ static struct Command commands[] = {
         { "showmappings", "Display memory mapping status", mon_showmappings },
         { "setpage", "Set page permissions", mon_setpage },
         { "memdump", "Show memory content", mon_memdump },
+        { "continue", "Continue program after breakpoint", mon_continue },
+        { "step", "Step one instruction after breakpoint", mon_step },
         { "colortest", "Test colorful output", mon_colortest }
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
@@ -84,7 +87,7 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
             continue;
         }
 
-#ifdef LAB1
+#ifdef LAB1_GRADING
         cprintf("  ebp %08x  eip %08x  args %08x %08x %08x %08x %08x\n",
                 ebp.addr, ebp.data[1], // ebp , eip
                 ebp.data[2], ebp.data[3], ebp.data[4], ebp.data[5], ebp.data[6]);
@@ -152,6 +155,47 @@ int mon_memdump(int argc, char **argv, struct Trapframe *tf)
 
     cprintf("usage: memdump [-p] low_addr size\n");
     return 1;
+}
+
+int mon_continue(int argc, char **argv, struct Trapframe *tf)
+{
+    if (!tf || (tf->tf_trapno != T_BRKPT && tf->tf_trapno != T_DEBUG)) {
+        cprintf("No breakpoint found, trapno is %d\n", tf ? tf->tf_trapno : -1);
+        return 1;
+    }
+
+    tf->tf_eflags &= ~FL_TF;
+
+    // should never return
+    env_run(curenv);
+
+    cprintf("Failed to continue program\n");
+    return 2;
+}
+
+int mon_step(int argc, char **argv, struct Trapframe *tf)
+{
+    if (!tf || (tf->tf_trapno != T_BRKPT && tf->tf_trapno != T_DEBUG)) {
+        cprintf("No breakpoint found, trapno is %d\n", tf ? tf->tf_trapno : -1);
+        return 1;
+    }
+
+    tf->tf_eflags |= FL_TF;
+
+    struct Eipdebuginfo info;
+    debuginfo_eip(tf->tf_eip, &info);
+
+    cprintf("eip=%08x %s:%d: %.*s+%d\n",
+            tf->tf_eip,
+            info.eip_file, info.eip_line,
+            info.eip_fn_namelen, info.eip_fn_name,
+            tf->tf_eip - info.eip_fn_addr);
+
+    // should never return
+    env_run(curenv);
+
+    cprintf("Failed to continue program\n");
+    return 2;
 }
 
 int mon_colortest(int argc, char **argv, struct Trapframe *tf)
