@@ -21,17 +21,16 @@
  * where NAME is the argument passed to TRAPHANDLER.
  */
 
-#define CAT(x, ...) x ## __VA_ARGS__
-#define PUSHEC(ec) CAT(PUSHEC_, ec)
+#define PUSHEC(ec) PUSHEC_ ## ec
 #define PUSHEC_1
 #define PUSHEC_0 pushl $0
 
 #define TRAPHANDLER(num, ec) \
     .data; \
-        .long vector##num; \
+        .long vector ## num; \
     .text; \
-    .globl vector##num; \
-    vector##num: \
+    .globl vector ## num; \
+    vector ## num: \
         PUSHEC(ec); \
         pushl $(num); \
         jmp _alltraps

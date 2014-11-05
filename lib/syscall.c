@@ -40,6 +40,7 @@ syscall(int num, int check, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 static inline int32_t sysenter(int num, int check,
         uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
 {
+#ifdef USE_SYSENTER
     // a5 is unused
     int32_t ret;
 
@@ -66,6 +67,9 @@ static inline int32_t sysenter(int num, int check,
         panic("sysenter %d returned %d (> 0)", num, ret);
 
     return ret;
+#else
+    return syscall(num, check, a1, a2, a3, a4, a5);
+#endif
 }
 
 void

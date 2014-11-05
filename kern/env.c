@@ -283,8 +283,8 @@ region_alloc(struct Env *e, void *va, size_t len)
     int i;
     for (i = 0; i < len; i += PGSIZE) { // don't use va in case of overflow
         PageInfo *p = page_alloc(ALLOC_ZERO);
-        if (!p) panic("Out of memory\n");
-        page_insert(e->env_pgdir, p, va + i, PTE_W | PTE_U);
+        if (!p || page_insert(e->env_pgdir, p, va + i, PTE_W | PTE_U) < 0)
+            panic("Out of memory\n");
     }
 }
 
@@ -348,7 +348,7 @@ load_icode(struct Env *e, uint8_t *binary)
     struct Proghdr *ph = (struct Proghdr *) &binary[elf->e_phoff];
     struct Proghdr *eph = ph + elf->e_phnum;
 
-    // otherwise crash
+    // make it easier to use p_va
     lcr3(PADDR(e->env_pgdir));
 
     for (; ph < eph; ph++) {
@@ -505,8 +505,8 @@ env_run(struct Env *e)
         e->env_status = ENV_RUNNING;
         e->env_runs++;
 
-        // this must be done ealier
-        lcr3(PADDR(e->env_pgdir));
+        // this is done earlier
+        //lcr3(PADDR(e->env_pgdir));
 
         curenv = e;
     }

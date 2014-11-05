@@ -67,9 +67,9 @@ trap_init(void)
 	extern struct Segdesc gdt[];
 
         int i;
-        for (i = 0; i <= 19; i++)
+        for (i = 0; i <= T_SIMDERR; i++)
             SETGATE(idt[i], 0, 8, vector[i], i == T_BRKPT ? 3 : 0);
-        SETGATE(idt[T_SYSCALL], 0, 8, vector[48], 3);
+        SETGATE(idt[T_SYSCALL], 0, 8, vector[T_SYSCALL], 3);
 
 	// Per-CPU setup 
 	trap_init_percpu();
